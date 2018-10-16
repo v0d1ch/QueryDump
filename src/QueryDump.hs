@@ -1,7 +1,7 @@
 {-# LANGUAGE ConstraintKinds   #-}
-{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 module QueryDump
   ( dumpQuery
@@ -25,8 +25,12 @@ import           Database.Persist.Postgresql (ConnectionString, PersistValue, Sq
 import           Database.Persist.Types
 import           Text.PrettyPrint
 
+
 type RunDbM m =
-  (MonadBaseControl IO m, MonadIO m, MonadLogger m, R.MonadThrow m)
+  (MonadBaseControl IO m, MonadIO m, MonadLogger m)
+
+data Config = Config
+  { configConnStr :: T.Text }
 
 data QueryMode
   = SelectQuery
@@ -48,10 +52,10 @@ dumpQuery qm q = do
   let queryD = mkDoc bld
   liftIO $ print $
     text "========================================================" $$
-    (vcat (zipQueryDoc queryD valD)) $$ head (reverse queryD)       $$
+    (vcat (zipQueryDoc queryD valD)) $$ last queryD                 $$
     text "========================================================"
   where
-    zipQueryDoc qd vd = zipWith (\x y -> x <+> y) qd vd
+    zipQueryDoc qd vd = zipWith (<+>) qd vd
     mkDoc bld =
       map (text . TL.unpack) (TL.splitOn (TL.pack "?") (TLB.toLazyText bld))
 
@@ -59,9 +63,14 @@ getQuery
   :: (EI.SqlSelect a r, RunDbM m)
   => EI.Mode -> EI.SqlQuery a -> m (TLB.Builder, [PersistValue])
 getQuery mode q = do
-  Config {..} <- liftIO loadConfig
+  let Config {..} = loadConfig
   withConn (TE.encodeUtf8 configConnStr)
     (\conn -> return $ EI.toRawSql mode (conn, EI.initialIdentState) q)
+
+loadConfig :: Config
+loadConfig =
+  Config
+  {configConnStr = "host=localhost, port=5432, dbname=ts4-test, user=postgres"}
 
 extractPersistValue :: PersistValue -> Doc
 extractPersistValue (PersistText s) = quotes $ text (T.unpack s)
